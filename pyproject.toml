@@ -1,0 +1,15 @@
+[project]
+name = "meshcompression"
+version = "0.1.0"
+description = "Source code for Machine Learning course project on 3D Neural Mesh Compression"
+authors = [{ name = "Thor De Roeck" }, { name = "Mirval Vanderputten" }]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
