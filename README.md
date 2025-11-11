@@ -14,6 +14,7 @@ conda activate meshcompression
 ```
 TOP/
 ├─ lib/
+│  ├─ toys4k/
 ├─ ML-project-meshcompression/
 │  ├─ build_project_with_data.sh
 ```
