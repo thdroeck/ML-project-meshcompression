@@ -10,5 +10,12 @@ And need activate it:
 ```
 conda activate meshcompression
 ```
-
+# Initial script and project structure
+```
+TOP/
+├─ lib/
+│  ├─ toys4k/
+├─ ML-project-meshcompression/
+│  ├─ build_project_with_data.sh
+```
 
