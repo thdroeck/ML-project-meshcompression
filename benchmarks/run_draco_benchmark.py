@@ -13,7 +13,7 @@ from benchmark_utils import get_mesh_stats, compute_all_metrics
 # --- CONFIGURATION ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
-DATA_DIR = PROJECT_ROOT.parent / "lib" / "toys4k_obj_files"
+DATA_DIR = PROJECT_ROOT.parent / "lib" / "toys4k_split" / "test"
 RESULTS_DIR = PROJECT_ROOT / "results"
 RESULT_FILE = RESULTS_DIR / "draco_benchmark.csv"
 

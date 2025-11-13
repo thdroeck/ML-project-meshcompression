@@ -68,7 +68,6 @@ dependencies:
       - networkx==3.5
       - pyglet==1.5.31
       - scipy==1.16.3
-  - dracopy
   - pandas
   - tqdm
 prefix: /usr/local/Caskroom/miniconda/base/envs/meshcompression
