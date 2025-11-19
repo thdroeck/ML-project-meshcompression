@@ -8,6 +8,7 @@ from meshcompression.render import (
     render_random_watertight_objaverse_model,
 )
 from meshcompression.constants import ASSET_DIR
+from meshcompression.models.encoderdecoder import do_something
 
 
 def main() -> None:
@@ -16,7 +17,8 @@ def main() -> None:
     # render_random_watertight_objaverse_model()
     # render_n_random_watertight_objaverse_models(3)
     # load_random_model()
-    load_random_model()
+    # load_random_model()
+    do_something()
 
 
 def bunny_example() -> None:

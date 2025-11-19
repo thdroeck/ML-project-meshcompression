@@ -1,0 +1,44 @@
+------------ Options -------------
+arch: meshunet
+batch_size: 16
+beta1: 0.9
+checkpoints_dir: ./checkpoints
+continue_train: False
+dataroot: assets/testing/
+dataset_mode: classification
+epoch_count: 1
+export_folder: 
+fc_n: 100
+flip_edges: 0
+gpu_ids: [0]
+init_gain: 0.02
+init_type: normal
+is_train: True
+lr: 0.0002
+lr_decay_iters: 50
+lr_policy: lambda
+max_dataset_size: inf
+name: debug
+ncf: [16, 32, 32]
+ninput_edges: 750
+niter: 100
+niter_decay: 500
+no_vis: False
+norm: batch
+num_aug: 10
+num_groups: 16
+num_threads: 3
+phase: train
+pool_res: [1140, 780, 580]
+print_freq: 10
+resblocks: 0
+run_test_freq: 1
+save_epoch_freq: 1
+save_latest_freq: 250
+scale_verts: False
+seed: None
+serial_batches: False
+slide_verts: 0
+verbose_plot: False
+which_epoch: latest
+-------------- End ----------------

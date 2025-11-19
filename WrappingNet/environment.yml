@@ -1,0 +1,4 @@
+name: wrappingnet
+channels:
+  - defaults
+prefix: /usr/local/Caskroom/miniconda/base/envs/wrappingnet

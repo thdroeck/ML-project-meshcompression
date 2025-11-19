@@ -15,6 +15,12 @@ def render_from_file(mesh_file) -> None:
     render(mesh)
 
 
+def load_from_file(mesh_file):
+    """Load a mesh from file and return it."""
+    mesh = trimesh.load_mesh(mesh_file)
+    return mesh
+
+
 def render_watertight_from_file(mesh_file) -> None:
     """Load a mesh from file and render it if watertight. Otherwise load new mesh."""
     mesh = trimesh.load_mesh(mesh_file)
