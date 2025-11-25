@@ -6,6 +6,10 @@
 #   See LICENSE under the root folder.
 #
 ##################################################
+import WrappingNet.wrappingnet.dataloaders as dataloaders
+import WrappingNet.wrappingnet.losses as losses
+import WrappingNet.wrappingnet.models as models
+import WrappingNet.wrappingnet.utils as utils
 
 from pytorch_lightning.core import LightningModule
 from pytorch_lightning.trainer import Trainer
@@ -18,10 +22,6 @@ torch.set_num_threads(4)
 torch.set_float32_matmul_precision("high")
 
 # These imports have their own get() functions which will get the correct data/loss func/model depending on imput args.
-import wrappingnet.dataloaders as dataloaders
-import wrappingnet.losses as losses
-import wrappingnet.models as models
-import wrappingnet.utils as utils
 
 
 class WrappingNetLightning(LightningModule):
