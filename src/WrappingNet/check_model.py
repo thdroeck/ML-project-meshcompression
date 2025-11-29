@@ -1,7 +1,11 @@
 from argparse import ArgumentParser
 from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet.dataloaders import manifold40_dset
-from WrappingNet.wrappingnet.models import WrappingNet_sphere_LC
+from WrappingNet.wrappingnet.models import (
+    WrappingNet_sphere_LC,
+    WrappingNet_global_basesup3,
+    Autoencoder,
+)
 
 import torch
 import trimesh
@@ -14,7 +18,7 @@ def main(args):
     model_checkpoint = args.model_checkpoint
     dataset_path = args.dataset_path
     # Load data for evaluation
-    model = WrappingNet_sphere_LC(input_dim=7, feature_dim=512, num_loop=3)
+    model = Autoencoder(input_dim=7, feature_dim=128, num_loop=3)
     saved = torch.load(
         model_checkpoint,
         map_location="cpu",
@@ -40,7 +44,7 @@ def main(args):
     )
 
     pos_base, faces_base = utils.get_base_mesh(mesh.pos, mesh.face.T)
-    pos_list, face_list, _ = model(mesh.pos, mesh.face.T, pos_base)
+    pos_list, face_list, _ = model(mesh.pos, mesh.face.T)
 
     print("Evaluation completed.")
     print(f"Final output vertices: {pos_list[-1].shape}")
