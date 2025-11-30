@@ -6,6 +6,7 @@ __pycache__/
 *.pyd
 *.egg-info/
 *.npz
+.venv/
 
 .ninja_deps
 .ninja_log
