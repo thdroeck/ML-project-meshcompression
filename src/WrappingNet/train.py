@@ -66,8 +66,9 @@ def train(args):
         os.makedirs("trained/")
     torch.save(
         model.state_dict(),
-        f"trained/TRAIN_MeshAE_{args.loss_function}_{args.data_root}_d{args.latent_dim}_e{args.epochs}.ckpt",
+        f"trained/TRAIN_MeshAE_{args.loss_function}_d{args.latent_dim}_e{args.epochs}.ckpt",
     )
+    print(f"Model saved to: trained/TRAIN_MeshAE_{args.loss_function}_d{args.latent_dim}_e{args.epochs}.ckpt")
 
 
 if __name__ == "__main__":
