@@ -111,10 +111,19 @@ def l2(pos_list, face_list, p_true, f_true):
     )
 
 
-def multiscale_l2(pos_list, face_list, p_true, f_true):
+def old_multiscale_l2(pos_list, face_list, p_true, f_true):
     d_multi = torch.stack(
         [
             torch.mean(torch.linalg.norm(pos - p_true[0 : pos.shape[0], :], dim=1) ** 2)
+            for pos in pos_list
+        ]
+    )
+    return torch.mean(d_multi)
+
+def multiscale_l2(pos_list, face_list, p_true, f_true):
+    d_multi = torch.stack(
+        [
+            torch.mean(torch.linalg.norm(pos[0 : min(p_true.shape[0], pos.shape[0]), :] - p_true[0 : min(p_true.shape[0], pos.shape[0]), :], dim=1) ** 2)
             for pos in pos_list
         ]
     )

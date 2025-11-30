@@ -25,7 +25,7 @@ def get_base_mesh(pos, faces, n_iter=3):
         pos = pos[0:num_nodes]
     return pos, faces
 
-def compute_face_adjacency(faces):
+def old_compute_face_adjacency(faces):
     F = faces.shape[0]
     FAF = torch.zeros_like(faces)
     current_edges = torch.cat((faces[:,[1,2]], faces[:, [2,0]], faces[:, [0,1]]), dim=0)
@@ -35,6 +35,66 @@ def compute_face_adjacency(faces):
     
     FAF[S[:, 0] % F, torch.div(S[:,0], F, rounding_mode='floor')] = S[:, 1] % F
     FAF[S[:, 1] % F, torch.div(S[:,1], F, rounding_mode='floor')] = S[:, 0] % F
+    return FAF
+
+def compute_face_adjacency(faces):
+    """
+    Computes adjacency for each triangular face.
+    FAF[f, e] = index of the face adjacent to face f across edge e
+                (or -1 if the edge is a boundary)
+    
+    Edge ordering:
+        e = 0 : edge (v1, v2)
+        e = 1 : edge (v2, v0)
+        e = 2 : edge (v0, v1)
+    """
+
+    F = faces.shape[0]
+    Vmax = faces.max().item() + 1
+
+    # 1. Build the 3 edges for each face
+    edges = torch.stack([
+        faces[:, [1, 2]],   # edge 0
+        faces[:, [2, 0]],   # edge 1
+        faces[:, [0, 1]]    # edge 2
+    ], dim=1)               # shape: (F, 3, 2)
+
+    # Flatten to shape (3F, 2)
+    edges_flat = edges.reshape(-1, 2)
+
+    # 2. Create a unique undirected edge key
+    a = torch.minimum(edges_flat[:, 0], edges_flat[:, 1])
+    b = torch.maximum(edges_flat[:, 0], edges_flat[:, 1])
+    unique_edges = a * Vmax + b
+
+    # 3. Sort by edge key
+    S = torch.argsort(unique_edges)
+
+    # Adjacent faces result
+    FAF = torch.full((F, 3), -1, dtype=torch.long)
+
+    # 4. Sweep through sorted edges and pair equal keys
+    i = 0
+    N = len(S)
+
+    while i < N - 1:
+        i0 = S[i]
+        i1 = S[i + 1]
+
+        if unique_edges[i0] == unique_edges[i1]:
+            # Two half-edges match -> adjacency found
+            f0 = (i0 // 3).item()
+            e0 = (i0 % 3).item()
+            f1 = (i1 // 3).item()
+            e1 = (i1 % 3).item()
+
+            FAF[f0, e0] = f1
+            FAF[f1, e1] = f0
+
+            i += 2
+        else:
+            i += 1
+
     return FAF
 
 def extract_features(pos, faces):

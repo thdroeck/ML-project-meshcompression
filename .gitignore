@@ -12,9 +12,10 @@ __pycache__/
 build/
 dist/
 *.egg
-*.ckpt
 *.log
 *.obj
 *.pt
 *.zip
 *.DS_Store
+*.yaml
+*.csv
