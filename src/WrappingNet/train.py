@@ -64,11 +64,18 @@ def train(args):
 
     if not os.path.exists("trained/"):
         os.makedirs("trained/")
+    
+    safe_data_root_name = args.data_root.replace("/", "_").replace(".", "").strip("_")
+    
+    save_path = f"trained/MeshAE_{args.loss_function}_{safe_data_root_name}_d{args.latent_dim}_e{args.epochs}.ckpt"
+    
+    print(f"Saving model to {save_path}")
+    
     torch.save(
         model.state_dict(),
-        f"trained/TRAIN_MeshAE_{args.loss_function}_d{args.latent_dim}_e{args.epochs}.ckpt",
+        save_path,
     )
-    print(f"Model saved to: trained/TRAIN_MeshAE_{args.loss_function}_d{args.latent_dim}_e{args.epochs}.ckpt")
+    print(f"Model saved to: {save_path}")
 
 
 if __name__ == "__main__":
