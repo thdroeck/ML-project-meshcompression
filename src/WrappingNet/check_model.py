@@ -73,7 +73,8 @@ def visualize(args):
 
     # Create scene with both
     scene = trimesh.Scene([mesh_trimesh1, mesh2_shifted])
-    scene.show()
+    scene.export("output_visualization.glb")
+    print("Scene saved to output_visualization.glb")
 
 def performance(args):
     model_checkpoint = args.model_checkpoint

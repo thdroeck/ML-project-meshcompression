@@ -138,8 +138,10 @@ def run_benchmark():
     RESULTS_DIR.mkdir(exist_ok=True)
 
     # Pattern: ROOT / raw / <any_category> / test / <any_subfolder> / <file>
-    search_path_obj = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.obj")
-    search_path_ply = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.ply")
+    # search_path_obj = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.obj")
+    # search_path_ply = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.ply")
+    search_path_obj = os.path.join(DATA_DIR, "raw", "airplane", "test", "**", "*.obj")
+    search_path_ply = os.path.join(DATA_DIR, "raw", "airplane", "test", "**", "*.ply")
 
     print("Scanning for files...")
     mesh_files = glob.glob(search_path_obj, recursive=True) + glob.glob(search_path_ply, recursive=True)
