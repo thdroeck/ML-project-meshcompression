@@ -13,7 +13,10 @@ from benchmark_utils import get_mesh_stats, compute_all_metrics
 # --- CONFIGURATION ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_ROOT = SCRIPT_DIR.parent
-DATA_DIR = PROJECT_ROOT.parent / "lib" / "toys4k_split" / "test"
+
+# UPDATED: Point to the root of the Manifold40 dataset, not the test folder directly
+DATA_DIR = PROJECT_ROOT / "src" / "WrappingNet" / "datasets" / "Manifold40"
+
 RESULTS_DIR = PROJECT_ROOT / "results"
 RESULT_FILE = RESULTS_DIR / "draco_benchmark.csv"
 
@@ -26,26 +29,30 @@ N_METRIC_POINTS = 20000
 def run_benchmark():
     """
     Runs the Draco benchmark on all meshes in DATA_DIR
+    structure: Manifold40/raw/<category>/test
     and saves the results in RESULT_FILE.
     """
     print(f"Starting Draco benchmark...")
-    print(f"Test set source: {DATA_DIR}")
+    print(f"Dataset root: {DATA_DIR}")
     print(f"Results will be saved in: {RESULT_FILE}")
 
     # Create the /results directory if it doesn't exist
     RESULTS_DIR.mkdir(exist_ok=True)
 
-    # Recursive search for mesh files
-    search_path_obj = os.path.join(DATA_DIR, "**", "*.obj")
-    search_path_ply = os.path.join(DATA_DIR, "**", "*.ply")
+    # UPDATED: Search specifically in raw/<category>/test
+    # The pattern matches: ROOT / raw / <any_category> / test / <any_subfolder> / <file>
+    search_path_obj = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.obj")
+    search_path_ply = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.ply")
 
+    # Recursive=True allows finding files if they are nested deeper inside the test folder
     mesh_files = glob.glob(search_path_obj, recursive=True) + glob.glob(search_path_ply, recursive=True)
 
     if not mesh_files:
-        print(f"No meshes (.obj or .ply) found in {DATA_DIR} and subdirectories.")
+        print(f"No meshes (.obj or .ply) found in {DATA_DIR}/raw/*/test/")
+        print("Please check your directory structure.")
         return
 
-    print(f"Found {len(mesh_files)} total meshes. Starting...")
+    print(f"Found {len(mesh_files)} total meshes across all categories. Starting...")
     all_results = []
 
     for mesh_path in tqdm(mesh_files, desc="Processing meshes"):
@@ -74,7 +81,12 @@ def run_benchmark():
             print(f"Error loading {mesh_path}: {e}")
             continue
 
-        for qp in tqdm(QUANTIZATION_LEVELS, desc=f"QP for {os.path.basename(mesh_path)}", leave=False):
+        # Use mesh filename + category as a short description for the progress bar
+        # Assumes structure: .../raw/category/test/file.obj
+        path_obj = Path(mesh_path)
+        short_name = f"{path_obj.parent.parent.name}/{path_obj.name}" 
+
+        for qp in tqdm(QUANTIZATION_LEVELS, desc=f"QP for {short_name}", leave=False):
 
             # --- 1. Rate & Compression Performance ---
             start_time = time.perf_counter()
@@ -115,8 +127,14 @@ def run_benchmark():
             )
 
             # --- 4. Save Results ---
+            # Save path relative to the dataset root for cleaner CSV
+            try:
+                rel_path = str(Path(mesh_path).relative_to(DATA_DIR))
+            except ValueError:
+                rel_path = mesh_path
+
             result = {
-                "mesh_path": str(Path(mesh_path).relative_to(DATA_DIR)),
+                "mesh_path": rel_path,
                 "q_level": qp,
                 "original_vertices": original_num_vertices,
                 "original_faces": stats["faces"],

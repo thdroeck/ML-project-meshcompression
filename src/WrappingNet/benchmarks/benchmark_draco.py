@@ -13,12 +13,12 @@ from benchmark_utils import get_mesh_stats, compute_all_metrics
 
 # --- CONFIGURATION ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
-PROJECT_ROOT = SCRIPT_DIR.parent
+WRAPPINGNET_PATH = SCRIPT_DIR.parent
 
 # Point to the root of the Manifold40 dataset
-DATA_DIR = PROJECT_ROOT / "src" / "WrappingNet" / "datasets" / "Manifold40"
+DATA_DIR = WRAPPINGNET_PATH / "datasets" / "Manifold40"
 
-RESULTS_DIR = PROJECT_ROOT / "results"
+RESULTS_DIR = WRAPPINGNET_PATH / "results"
 RESULT_FILE = RESULTS_DIR / "draco_benchmark.csv"
 
 # quantization bits for position (geometry)
