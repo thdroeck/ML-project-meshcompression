@@ -6,15 +6,17 @@ __pycache__/
 *.pyd
 *.egg-info/
 *.npz
+.venv/
 
 .ninja_deps
 .ninja_log
 build/
 dist/
 *.egg
-*.ckpt
 *.log
 *.obj
 *.pt
 *.zip
 *.DS_Store
+*.yaml
+*.csv

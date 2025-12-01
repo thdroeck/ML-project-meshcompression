@@ -64,7 +64,9 @@ class WrappingNetLightning(LightningModule):
                 batch_size=1,
             )
         else:
-            pos_list, face_list, _ = self.model(data.pos, data.face.T, pos_base)
+            pos_list, face_list, _ = self.model(
+                data.pos, data.face.T
+            )  # self.model(data.pos, data.face.T, pos_base)
             rate = torch.tensor(0.0)
             distortion_loss = self.distortion_func(
                 pos_list, face_list, data.pos, data.face.T
@@ -103,7 +105,9 @@ class WrappingNetLightning(LightningModule):
                 batch_size=1,
             )
         else:
-            pos_list, face_list, _ = self.model(data.pos, data.face.T, pos_base)
+            pos_list, face_list, _ = self.model(
+                data.pos, data.face.T
+            )  # self.model(data.pos, data.face.T, pos_base)
             rate = torch.tensor(0.0)
             distortion_loss = self.distortion_eval(
                 pos_list, face_list, data.pos, data.face.T

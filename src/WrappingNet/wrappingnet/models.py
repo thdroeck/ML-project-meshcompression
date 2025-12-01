@@ -26,21 +26,47 @@ def get_model(args):
 
 
 class Autoencoder(torch.nn.Module):
-    def __init__(self, input_dim=7, feature_dim=16, num_loop=3):
+    def __init__(self, input_dim=7, feature_dim=16, num_loop=3, print_debug=False):
         super().__init__()
-        self.encoder = Encoder(
-            input_dim=input_dim, feature_dim=feature_dim, num_layers=num_loop
+        self.encoder = MyEncoder(
+            input_dim=input_dim,
+            feature_dim=feature_dim * 2,
+            num_layers=num_loop,
+            hidden_dim=int(feature_dim / 4),
+            print_debug=print_debug,
         )
-        self.decoder = Decoder(
-            input_dim=input_dim, feature_dim=feature_dim, num_layers=num_loop
+        self.decoder = MyDecoder(
+            input_dim=input_dim,
+            feature_dim=feature_dim,
+            num_layers=num_loop,
+            hidden_dim=int(feature_dim / 4),
+            print_debug=print_debug,
+        )
+        self.mlp = MLP(
+            in_channels=feature_dim * 2,
+            hidden_channels=feature_dim * 2,
+            out_channels=feature_dim * 2,
+            num_layers=2,
+            batch_norm=False,
+        )
+        self.mlp2 = MLP(
+            in_channels=feature_dim * 2,
+            hidden_channels=feature_dim,
+            out_channels=feature_dim,
+            num_layers=3,
+            batch_norm=False,
         )
 
     def forward(self, pos, faces):
         face_base, features = self.encoder(pos, faces)
         num_nodes = face_base.max() + 1  # len(torch.unique(face_base.flatten()))
         pos_base = pos[0:num_nodes]
+        latent_code = torch.max(features, dim=0)[0].unsqueeze(0)
+        latent_code = self.mlp2(latent_code).squeeze()
+        features = latent_code.repeat(features.shape[0], 1)
+
         pos_list, face_list = self.decoder(pos_base, face_base, features)
-        return pos_list, face_list
+        return pos_list, face_list, pos_base
 
 
 class WrappingNet_sphere_LC(torch.nn.Module):
@@ -126,12 +152,18 @@ class WrappingNet_global_basesup3(torch.nn.Module):
 
     def forward(self, pos, faces, pos_base):
         face_base, features = self.encoder(pos, faces)
+        # with torch.no_grad():
+        #     pos_base = self.make_sphere(pos_base, face_base)
+        #     pos_sphere = 10 * utils.gen_sphere_samples(pos_base.shape[0]).to(
+        #         pos_base.device
+        #     )
+        #     # idx = losses.chamfer_forward_idx(pos_base, pos_sphere)
+        #     idx = utils.matching(pos_base, pos_sphere)
+        #     pos_base = pos_sphere[idx]
         with torch.no_grad():
             pos_base = self.make_sphere(pos_base, face_base)
-            pos_sphere = 10 * utils.gen_sphere_samples(pos_base.shape[0]).to(
-                pos_base.device
-            )
-            idx = utils.matching(pos_base, pos_sphere)
+            pos_sphere = 10 * utils.gen_sphere_samples(10000).to(pos_base.device)
+            idx = losses.chamfer_forward_idx(pos_sphere, pos_base).squeeze()
             pos_base = pos_sphere[idx]
         features = self.mlp(features)
         latent_code = torch.max(features, dim=0)[0].unsqueeze(0)
@@ -164,6 +196,99 @@ class Encoder(torch.nn.Module):
         faces, face_features = self.pool(faces, face_features)
         face_features = self.conv4(faces, face_features)
         return faces, face_features
+
+
+class MyEncoder(torch.nn.Module):
+    def __init__(self, input_dim=7, feature_dim=16, num_layers=4, hidden_dim=64, print_debug=False):
+        super().__init__()
+        self.num_layers = num_layers
+        self.feature_dim = feature_dim
+        self.print_debug = print_debug
+        # hidden_dim = 64
+        self.pool = LoopPool(pooling_type="mean")
+        self.conv1 = FaceConv(input_dim, hidden_dim)
+        self.conv2 = FaceConv(hidden_dim, self.feature_dim)
+
+    def forward(self, pos, faces):
+        if self.print_debug: print("encoder input: ", pos.shape, faces.shape)
+        face_features = torch.relu(
+            self.conv1(faces, utils.extract_features(pos, faces))
+        )
+        if self.print_debug: print("encoder conv 1: ", face_features.shape)
+        faces, face_features = self.pool(faces, face_features)
+        if self.print_debug: print("encoder pool 1: ", faces.shape, face_features.shape)
+        face_features = self.conv2(faces, face_features)
+        if self.print_debug: print("encoder conv 2: ", face_features.shape)
+        return faces, face_features
+
+
+class MyDecoder(torch.nn.Module):
+    def __init__(self, input_dim=7, feature_dim=16, num_layers=4, hidden_dim=64, print_debug=False):
+        super().__init__()
+        self.num_layers = num_layers
+        self.interp_mode = "nearest"
+        self.feature_dim = feature_dim
+        self.print_debug = print_debug
+        # hidden_dim = 64
+        self.unpool = LoopUnPool()
+        self.conv1 = FaceConv(feature_dim + input_dim, hidden_dim)
+        self.f2n1 = Face2Node(hidden_dim, hidden_dim)
+        self.conv2 = FaceConv(hidden_dim, hidden_dim)
+        self.f2n2 = Face2Node(hidden_dim, hidden_dim)
+        self.conv3 = FaceConv(hidden_dim, hidden_dim)
+        self.f2n3 = Face2Node(hidden_dim, 0)
+
+    def forward(self, pos, faces, input_feature=None):
+        # pos: [num_pos_base, 3]
+        # faces: [num_face_base, 3]
+        # input_features: optional, [num_face_base, feature_dim]
+        pos_list = []
+        face_list = []
+
+        if self.print_debug: print("decoder input: ", pos.shape, faces.shape)
+        if input_feature is None:
+            input_feature = torch.ones((faces.shape[0], self.feature_dim)).to(
+                pos.device
+            )
+        if self.print_debug: print("decoder input_feature: ", input_feature.shape)
+        face_features = torch.cat(
+            (utils.extract_features(pos, faces), input_feature), dim=1
+        )
+        if self.print_debug: print("decoder face_features: ", face_features.shape)
+        pos, faces, face_features = self.unpool(
+            pos, faces, face_features, mode=self.interp_mode
+        )
+        if self.print_debug: print("decoder unpool 1: ", pos.shape, faces.shape, face_features.shape)
+        face_features = torch.relu(self.conv1(faces, face_features))
+        if self.print_debug: print("decoder conv 1: ", face_features.shape)
+        _, pos, face_features = self.f2n1(pos, faces, face_features)
+        if self.print_debug: print("decoder f2n1: ", pos.shape, face_features.shape)
+        pos_list.append(pos)
+        face_list.append(faces)
+
+        pos, faces, face_features = self.unpool(
+            pos, faces, face_features, mode=self.interp_mode
+        )
+        if self.print_debug: print("decoder unpool 2: ", pos.shape, faces.shape, face_features.shape)
+        face_features = torch.relu(self.conv2(faces, face_features))
+        if self.print_debug: print("decoder conv 2: ", face_features.shape)
+        _, pos, face_features = self.f2n2(pos, faces, face_features)
+        if self.print_debug: print("decoder f2n2: ", pos.shape, face_features.shape)
+        pos_list.append(pos)
+        face_list.append(faces)
+
+        pos, faces, face_features = self.unpool(
+            pos, faces, face_features, mode=self.interp_mode
+        )
+        if self.print_debug: print("decoder unpool 3: ", pos.shape, faces.shape, face_features.shape)
+        face_features = torch.relu(self.conv3(faces, face_features))
+        if self.print_debug: print("decoder conv 3: ", face_features.shape)
+        _, pos, _ = self.f2n3(pos, faces, face_features)
+        if self.print_debug: print("decoder f2n3: ", pos.shape)
+        pos_list.append(pos)
+        face_list.append(faces)
+
+        return pos_list, face_list
 
 
 class MakeSphere(torch.nn.Module):
