@@ -1,12 +1,14 @@
 from argparse import ArgumentParser
 
 import os
+from pyexpat import model
 from WrappingNet.wrappingnet.dataloaders import preprocess_mesh
 import trimesh
 import torch
 from tqdm import tqdm
 from torch_geometric.data import Data
-from WrappingNet.wrappingnet.models import Autoencoder
+from WrappingNet.wrappingnet.models import Autoencoder, WrappingNet_sphere_LC
+from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet import losses
 
 
@@ -18,11 +20,15 @@ def train(args):
     )
     # Training code would go here
 
-    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3, print_debug=False)
+    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=args.lr,
     )
+
+    print(torch.cuda.is_available())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)        
 
     data = []
     dataset_counter = 0
@@ -43,16 +49,18 @@ def train(args):
         for i in tqdm(range(len(data))):
             pos = data[i].pos
             face = data[i].face
+            print(pos.shape, face.shape)
+            pos_base = utils.get_base_mesh(pos, face.T)
             pos_list, face_list, _ = model(
                 pos, face.T
-            )  # self.model(data.pos, data.face.T, pos_base)
+            ) 
             rate = torch.tensor(0.0)
 
             distortion_loss = losses.get_distortion_loss(args.loss_function)(
                 pos_list, face_list, pos, face.T
             )
             chamfer_loss = losses.chamfer(pos_list[-1], pos)  # unused for now
-            loss = rate + args.lmbda * distortion_loss
+            loss = rate + args.lmbda * distortion_loss + 0.5*chamfer_loss
             epoch_loss += loss.item()
 
             loss.backward()

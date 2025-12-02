@@ -1,8 +1,9 @@
 from argparse import ArgumentParser
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet.losses import chamfer  
-from WrappingNet.wrappingnet.dataloaders import manifold40_dset
+from WrappingNet.wrappingnet.dataloaders import manifold40, manifold40_dset, preprocess_mesh
 from WrappingNet.wrappingnet.models import (
     WrappingNet_sphere_LC,
     WrappingNet_global_basesup3,
@@ -21,8 +22,24 @@ def get_method(args):
         return visualize
     elif args.method == "performance":
         return performance
+    elif args.method == "view_mandold_dataloader":
+        return view_mandold_dataloader
     else:
         raise ValueError(f"Unknown method: {args.method}")
+
+def view_mandold_dataloader(args):
+    dataset = manifold40_dset(root=f"{args.dataset_path}/Manifold40")
+    average_vertices = np.mean([data.pos.shape[0] for data in dataset])
+    average_faces = np.mean([data.face.shape[1] for data in dataset])
+    print(f"Average number of vertices: {average_vertices}")
+    print(f"Average number of faces: {average_faces}")
+    # for data in dataset:
+    #     # print(f"Data: {data}")
+    #     # print(f"Number of vertices: {data.pos.shape[0]}")
+    #     # print(f"Number of faces: {data.face.shape[1]}")
+    #     mesh = trimesh.Trimesh(
+    #         vertices=data.pos.numpy(), faces=data.face.T.numpy()
+    #     )
 
 def visualize(args):
     device = "cuda:1" if torch.cuda.is_available() else "cpu"
@@ -47,7 +64,7 @@ def visualize(args):
     mesh = trimesh.load(args.dataset_path)
     pos = torch.tensor(mesh.vertices, dtype=torch.float32)
     face = torch.tensor(mesh.faces, dtype=torch.long)
-    mesh = Data(pos=pos, face=face.T)
+    mesh = preprocess_mesh(Data(pos=pos, face=face.T))
 
     # load mesh in trimesh before we change it with the model
     mesh_trimesh1 = trimesh.Trimesh(
@@ -75,6 +92,35 @@ def visualize(args):
     scene = trimesh.Scene([mesh_trimesh1, mesh2_shifted])
     scene.show()
 
+def evaluate_folder(model, dataset_path, folder):
+    test_path = os.path.join(dataset_path, folder, "test")
+
+    if not os.path.exists(test_path):
+        return folder, None  # no test folder
+
+    total_chamfer = 0.0
+    total_meshes = 0
+
+    for mesh_file in os.listdir(test_path):
+        mesh_full_path = os.path.join(test_path, mesh_file)
+        mesh = trimesh.load(mesh_full_path)
+
+        pos = torch.tensor(mesh.vertices, dtype=torch.float32)
+        face = torch.tensor(mesh.faces, dtype=torch.long)
+        mesh_data = Data(pos=pos, face=face.T)
+
+        # run model (ensure it's CPU-safe)
+        pos_list, face_list, _ = model(mesh_data.pos, mesh_data.face.T)
+
+        chamfer_loss = chamfer(pos_list[-1], mesh_data.pos)
+        total_chamfer += chamfer_loss.item()
+        total_meshes += 1
+
+    if total_meshes == 0:
+        return folder, None
+    
+    return folder, total_chamfer / total_meshes
+
 def performance(args):
     model_checkpoint = args.model_checkpoint
     dataset_path = args.dataset_path
@@ -87,24 +133,47 @@ def performance(args):
     model.load_state_dict(saved)
     model.eval()
 
-    # loop over all folders in dataset_path
-    for folder in os.listdir(dataset_path):
-        test_path = os.path.join(dataset_path, folder, "test")  # path to test folder
-        if os.path.exists(test_path):  # check if test folder exists
-            print(f"Evaluating data from {test_path}")  # log
-            total_chamfer = 0.0
-            total_meshes = 0
-            for mesh_file in os.listdir(test_path):
-                mesh = trimesh.load(os.path.join(test_path, mesh_file))
-                pos = torch.tensor(mesh.vertices, dtype=torch.float32)
-                face = torch.tensor(mesh.faces, dtype=torch.long)
-                mesh = Data(pos=pos, face=face.T)
-                pos_list, face_list, _ = model(mesh.pos, mesh.face.T)
-                chamfer_loss = chamfer(pos_list[-1], mesh.pos)
-                total_chamfer += chamfer_loss.item()
-                total_meshes += 1
-            avg_chamfer = total_chamfer / total_meshes
-            print(f"Average Chamfer Distance for {folder}: {avg_chamfer:.6f}")
+
+
+    # # loop over all folders in dataset_path
+    # for folder in os.listdir(dataset_path):
+    #     test_path = os.path.join(dataset_path, folder, "test")  # path to test folder
+    #     if os.path.exists(test_path):  # check if test folder exists
+    #         print(f"Evaluating data from {test_path}")  # log
+    #         total_chamfer = 0.0
+    #         total_meshes = 0
+    #         for mesh_file in os.listdir(test_path):
+    #             mesh = trimesh.load(os.path.join(test_path, mesh_file))
+    #             pos = torch.tensor(mesh.vertices, dtype=torch.float32)
+    #             face = torch.tensor(mesh.faces, dtype=torch.long)
+    #             mesh = Data(pos=pos, face=face.T)
+    #             pos_list, face_list, _ = model(mesh.pos, mesh.face.T)
+    #             chamfer_loss = chamfer(pos_list[-1], mesh.pos)
+    #             total_chamfer += chamfer_loss.item()
+    #             total_meshes += 1
+    #         avg_chamfer = total_chamfer / total_meshes
+    #         print(f"Average Chamfer Distance for {folder}: {avg_chamfer:.6f}")
+
+    folders = os.listdir(dataset_path)
+
+    print(f"Starting parallel evaluation with {os.cpu_count()} workers...\n")
+
+    tasks = [(model, dataset_path, folder) for folder in folders]
+
+    results = {}
+    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+        futures = {executor.submit(evaluate_folder, *t): t[1] for t in tasks}
+
+        for future in as_completed(futures):
+            folder = futures[future]
+            folder, avg_chamfer = future.result()
+
+            if avg_chamfer is None:
+                print(f"[{folder}] No test folder found.")
+            else:
+                print(f"[{folder}] Average Chamfer Distance: {avg_chamfer:.6f}")
+
+            results[folder] = avg_chamfer
 
 if __name__ == "__main__":
     parser = ArgumentParser()

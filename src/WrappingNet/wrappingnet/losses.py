@@ -110,6 +110,12 @@ def l2(pos_list, face_list, p_true, f_true):
         ** 2
     )
 
+def single_l2(pos, face, p_true, f_true):
+    
+    return torch.mean(
+        torch.linalg.norm(pos - p_true[0 : pos.shape[0], :], dim=1)
+        ** 2
+    )
 
 def old_multiscale_l2(pos_list, face_list, p_true, f_true):
     d_multi = torch.stack(
