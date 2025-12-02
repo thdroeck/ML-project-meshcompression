@@ -19,3 +19,8 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.extra-build-dependencies]
+torch-cluster = ["torch"]
+torch-scatter = ["torch"]
+torch-sparse = ["torch"]

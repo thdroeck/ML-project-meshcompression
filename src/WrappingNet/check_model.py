@@ -22,24 +22,77 @@ def get_method(args):
         return visualize
     elif args.method == "performance":
         return performance
-    elif args.method == "view_mandold_dataloader":
+    elif args.method == "view_manifold_dataloader":
         return view_mandold_dataloader
     else:
         raise ValueError(f"Unknown method: {args.method}")
 
+def render_2_meshes(mesh1, mesh2):
+    # load mesh in trimesh before we change it with the model
+    mesh_trimesh1 = trimesh.Trimesh(
+        vertices=mesh1.pos.cpu().numpy(), faces=mesh1.face.T.cpu().numpy()
+    )
+
+    mesh_trimesh2 = trimesh.Trimesh(
+        vertices=mesh2.pos.cpu().numpy(), faces=mesh2.face.T.cpu().numpy()
+    )
+
+    bbox_size = mesh_trimesh1.bounds[1] - mesh_trimesh1.bounds[0]
+    offset = np.array([bbox_size[0] * 2, 0, 0])  # 20% spacing
+
+    # Apply translation to mesh2
+    mesh2_shifted = mesh_trimesh2.copy()
+    mesh2_shifted.apply_translation(offset)
+
+    # Create scene with both
+    scene = trimesh.Scene([mesh_trimesh1, mesh2_shifted])
+    scene.show()
+
+
 def view_mandold_dataloader(args):
-    dataset = manifold40_dset(root=f"{args.dataset_path}/Manifold40")
+    dataset = manifold40_dset(root=f"{args.dataset_path}")
     average_vertices = np.mean([data.pos.shape[0] for data in dataset])
     average_faces = np.mean([data.face.shape[1] for data in dataset])
     print(f"Average number of vertices: {average_vertices}")
     print(f"Average number of faces: {average_faces}")
-    # for data in dataset:
-    #     # print(f"Data: {data}")
-    #     # print(f"Number of vertices: {data.pos.shape[0]}")
-    #     # print(f"Number of faces: {data.face.shape[1]}")
-    #     mesh = trimesh.Trimesh(
-    #         vertices=data.pos.numpy(), faces=data.face.T.numpy()
-    #     )
+
+    device = "cuda:1" if torch.cuda.is_available() else "cpu"
+
+    model_checkpoint = args.model_checkpoint
+    dataset_path = args.dataset_path
+    # Load data for evaluation
+    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    saved = torch.load(
+        model_checkpoint,
+        map_location="cpu",
+    )
+    model.load_state_dict(saved)
+    model.eval()
+
+    # Load mesh data
+    dset_test = manifold40_dset(root=dataset_path, train=False)
+
+    iterator = iter(dset_test)
+    # for _ in range(200):
+    #     next(iterator)
+    mesh1 = next(iterator)
+    mesh1 = mesh1.to(device)
+    print(mesh1)
+    print(mesh1.pos)
+    print(mesh1.face)
+    pos_base, faces_base = utils.get_base_mesh(mesh1.pos, mesh1.face.T)
+    pos_list, face_list, _ = model(mesh1.pos, mesh1.face.T)
+
+    mesh2 = Data(pos=pos_list[-1].detach(), face=face_list[-1].detach().T)
+
+    print("Evaluation completed.")
+    print(f"Final output vertices: {pos_list[-1].shape}")
+    print(f"Final output faces: {face_list[-1].shape}")
+    print(pos_list[-1])
+    print(face_list[-1])
+    print(mesh2)
+
+    render_2_meshes(mesh1, mesh2)
 
 def visualize(args):
     device = "cuda:1" if torch.cuda.is_available() else "cpu"
@@ -55,42 +108,42 @@ def visualize(args):
     model.load_state_dict(saved)
     model.eval()
 
+
     # choose random folder from dataset_path
     # folder = np.random.choice(os.listdir(dataset_path))
     # test_path = os.path.join(dataset_path, folder, "test")  # path to test folder
     # choose random .obj file from test_path
     # mesh_file = np.random.choice(os.listdir(test_path))
     # mesh = trimesh.load(os.path.join(test_path, mesh_file))
-    mesh = trimesh.load(args.dataset_path)
-    pos = torch.tensor(mesh.vertices, dtype=torch.float32)
-    face = torch.tensor(mesh.faces, dtype=torch.long)
-    mesh = preprocess_mesh(Data(pos=pos, face=face.T))
+    mesh1 = trimesh.load(dataset_path)
+    pos=utils.normalize_pos(torch.tensor(mesh1.vertices, dtype=torch.float32))
+    face=torch.tensor(mesh1.faces, dtype=torch.long)
+    mesh1 = Data(pos=pos, face=face.T)
+    mesh1 = mesh1.to(device)
+    
+    print(mesh1.pos)
+    print(mesh1.face)
+    # new_faces = mesh.faces
+    # new_vert = mesh.vertices
+    # while (len (new_vert) < 3000):
+    #     new_vert, new_faces = trimesh.remesh.subdivide(new_vert, new_faces, face_index=None, vertex_attributes=None, return_index=False)
+    #     print(len(new_vert))
+    # pos = torch.tensor(new_vert, dtype=torch.float32)
+    # face = torch.tensor(new_faces, dtype=torch.long)
+    # mesh = preprocess_mesh(Data(pos=pos, face=face.T))
+    # mesh = Data(pos=pos, face=face.T)
 
-    # load mesh in trimesh before we change it with the model
-    mesh_trimesh1 = trimesh.Trimesh(
-        vertices=mesh.pos.cpu().numpy(), faces=mesh.face.T.cpu().numpy()
-    )
-
-    pos_list, face_list, _ = model(mesh.pos, mesh.face.T)
+    pos_list, face_list, _ = model(mesh1.pos, mesh1.face.T)
+    mesh2 = Data(pos=pos_list[-1].detach(), face=face_list[-1].detach().T)
 
     print("Evaluation completed.")
     print(f"Final output vertices: {pos_list[-1].shape}")
     print(f"Final output faces: {face_list[-1].shape}")
+    print(pos_list[-1])
+    print(face_list[-1])
 
-    mesh_trimesh2 = trimesh.Trimesh(
-        vertices=pos_list[-1].detach().numpy(), faces=face_list[-1].detach().numpy()
-    )
+    render_2_meshes(mesh1, mesh2)
 
-    bbox_size = mesh_trimesh1.bounds[1] - mesh_trimesh1.bounds[0]
-    offset = np.array([bbox_size[0] * 2, 0, 0])  # 20% spacing
-
-    # Apply translation to mesh2
-    mesh2_shifted = mesh_trimesh2.copy()
-    mesh2_shifted.apply_translation(offset)
-
-    # Create scene with both
-    scene = trimesh.Scene([mesh_trimesh1, mesh2_shifted])
-    scene.show()
 
 def evaluate_folder(model, dataset_path, folder):
     test_path = os.path.join(dataset_path, folder, "test")
