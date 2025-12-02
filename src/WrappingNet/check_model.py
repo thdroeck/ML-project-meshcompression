@@ -5,6 +5,8 @@ from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet.losses import chamfer  
 from WrappingNet.wrappingnet.dataloaders import manifold40, manifold40_dset, preprocess_mesh
 from WrappingNet.wrappingnet.models import (
+    ExtendedDecoder,
+    SimpleAutoencoder,
     WrappingNet_sphere_LC,
     WrappingNet_global_basesup3,
     Autoencoder,
@@ -16,6 +18,17 @@ import numpy as np
 
 from torch_geometric.data import Data
 
+
+def get_model(args):
+    if args.model == "basic":
+        model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    elif args.model == "simple":
+        model = SimpleAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    elif args.model == "extended":
+        model = ExtendedDecoder(input_dim=7, feature_dim=args.latent_dim, num_layers=3)
+    else:
+        raise ValueError(f"Unknown model type: {args.model}")
+    return model
 
 def get_method(args):
     if args.method == "visualize":
@@ -61,7 +74,7 @@ def view_mandold_dataloader(args):
     model_checkpoint = args.model_checkpoint
     dataset_path = args.dataset_path
     # Load data for evaluation
-    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    model = get_model(args)
     saved = torch.load(
         model_checkpoint,
         map_location="cpu",
@@ -100,7 +113,7 @@ def visualize(args):
     model_checkpoint = args.model_checkpoint
     dataset_path = args.dataset_path
     # Load data for evaluation
-    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    model = get_model(args)
     saved = torch.load(
         model_checkpoint,
         map_location="cpu",
@@ -116,22 +129,14 @@ def visualize(args):
     # mesh_file = np.random.choice(os.listdir(test_path))
     # mesh = trimesh.load(os.path.join(test_path, mesh_file))
     mesh1 = trimesh.load(dataset_path)
-    pos=utils.normalize_pos(torch.tensor(mesh1.vertices, dtype=torch.float32))
-    face=torch.tensor(mesh1.faces, dtype=torch.long)
+    new_faces = mesh1.faces
+    new_vert = mesh1.vertices
+    if (len (new_vert) % 2 == 1):
+        new_vert, new_faces = trimesh.remesh.subdivide(new_vert, new_faces, face_index=None, vertex_attributes=None, return_index=False)
+    pos = torch.tensor(new_vert, dtype=torch.float32)
+    face = torch.tensor(new_faces, dtype=torch.long)
+    mesh1 = preprocess_mesh(Data(pos=pos, face=face.T))
     mesh1 = Data(pos=pos, face=face.T)
-    mesh1 = mesh1.to(device)
-    
-    print(mesh1.pos)
-    print(mesh1.face)
-    # new_faces = mesh.faces
-    # new_vert = mesh.vertices
-    # while (len (new_vert) < 3000):
-    #     new_vert, new_faces = trimesh.remesh.subdivide(new_vert, new_faces, face_index=None, vertex_attributes=None, return_index=False)
-    #     print(len(new_vert))
-    # pos = torch.tensor(new_vert, dtype=torch.float32)
-    # face = torch.tensor(new_faces, dtype=torch.long)
-    # mesh = preprocess_mesh(Data(pos=pos, face=face.T))
-    # mesh = Data(pos=pos, face=face.T)
 
     pos_list, face_list, _ = model(mesh1.pos, mesh1.face.T)
     mesh2 = Data(pos=pos_list[-1].detach(), face=face_list[-1].detach().T)
@@ -258,6 +263,14 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="path to the dataset",
+    )
+
+    parser.add_argument(
+        "--model",
+        dest="model",
+        type=str,
+        default="basic",
+        help="model type: simple, basic or extended",
     )
 
     args = parser.parse_args()
