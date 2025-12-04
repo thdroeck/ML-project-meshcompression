@@ -117,36 +117,35 @@ class LoopPool(torch.nn.Module):
     Loop Pooling layer.
     Does the inverse of Loop for one iteration, followed by mean/max pooling of face features.
     """
-
-    def __init__(self, pooling_type="mean"):
+    def __init__(self, pooling_type='mean'):
         super().__init__()
         self.pooling_type = pooling_type
 
     def forward(self, faces, face_features):
         # face_features: [num_faces, channels]
-        # assumes faces
-        nf = faces.shape[0] // 4  # output number of faces
-        faces_new = torch.stack(
-            (faces[0:nf, 0], faces[nf : 2 * nf, 0], faces[2 * nf : 3 * nf, 0]), dim=1
-        )
+        # assumes faces 
+        nf = faces.shape[0] // 4 # output number of faces
+        faces_new = torch.stack((
+            faces[0:nf,0],
+            faces[nf:2*nf,0],
+            faces[2*nf:3*nf,0]
+        ), dim=1)
 
-        face_features = torch.stack(
-            (
-                face_features[0:nf],
-                face_features[nf : 2 * nf],
-                face_features[2 * nf : 3 * nf],
-                face_features[3 * nf :],
-            ),
-            dim=-1,
-        )  # [num_faces / 4, channels, 4]
+        face_features = torch.stack((
+            face_features[0:nf],
+            face_features[nf:2*nf],
+            face_features[2*nf:3*nf],
+            face_features[3*nf:]
+        ), dim=-1) # [num_faces / 4, channels, 4]
 
-        if self.pooling_type == "mean":
+        if self.pooling_type == 'mean':
             face_features = torch.mean(face_features, dim=-1)
-        elif self.pooling_type == "max":
+        elif self.pooling_type == 'max':
             face_features = torch.max(face_features, dim=-1)[0]
         else:
-            raise Exception("Invalid pooling type")
+            raise Exception('Invalid pooling type')
         return faces_new, face_features
+
 
 
 class LoopUnPool(torch.nn.Module):
