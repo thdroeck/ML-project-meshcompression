@@ -7,7 +7,7 @@ import trimesh
 import torch
 from tqdm import tqdm
 from torch_geometric.data import Data
-from WrappingNet.wrappingnet.models import Autoencoder, SimpleAutoencoder, ExtendedDecoder, WrappingNet_sphere_LC
+from WrappingNet.wrappingnet.models import Autoencoder, SimpleAutoencoder, ExtendedAutoencoder
 from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet import losses
 
@@ -18,7 +18,7 @@ def getmodel(args):
     elif args.model == "simple":
         model = SimpleAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
     elif args.model == "extended":
-        model = ExtendedDecoder(input_dim=7, feature_dim=args.latent_dim, num_layers=3)
+        model = ExtendedAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
     return model

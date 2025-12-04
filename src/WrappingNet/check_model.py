@@ -5,6 +5,7 @@ from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet.losses import chamfer  
 from WrappingNet.wrappingnet.dataloaders import manifold40, manifold40_dset, preprocess_mesh
 from WrappingNet.wrappingnet.models import (
+    ExtendedAutoencoder,
     ExtendedDecoder,
     SimpleAutoencoder,
     WrappingNet_sphere_LC,
@@ -25,7 +26,7 @@ def get_model(args):
     elif args.model == "simple":
         model = SimpleAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
     elif args.model == "extended":
-        model = ExtendedDecoder(input_dim=7, feature_dim=args.latent_dim, num_layers=3)
+        model = ExtendedAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
     return model

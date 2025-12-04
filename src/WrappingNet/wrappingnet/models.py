@@ -91,10 +91,10 @@ class SimpleAutoencoder(torch.nn.Module):
         num_nodes = face_base.max() + 1 # len(torch.unique(face_base.flatten()))
         pos_base = pos[0:num_nodes]
         pos_list, face_list = self.decoder(pos_base, face_base, features)
-        return pos_list, face_list
+        return pos_list, face_list, pos_base
     
 
-class AutoencoderExtended(torch.nn.Module):
+class ExtendedAutoencoder(torch.nn.Module):
     def __init__(self, input_dim=7, feature_dim=16, num_loop=3, print_debug=False):
         super().__init__()
         self.encoder = MyEncoder(
@@ -104,7 +104,7 @@ class AutoencoderExtended(torch.nn.Module):
             hidden_dim=int(feature_dim / 4),
             print_debug=print_debug,
         )
-        self.decoder = MyDecoder(
+        self.decoder = ExtendedDecoder(
             input_dim=input_dim,
             feature_dim=feature_dim,
             num_layers=num_loop,
@@ -291,10 +291,11 @@ class MyEncoder(torch.nn.Module):
         return faces, face_features
     
 class ExtendedEncoder(torch.nn.Module):
-    def __init__(self, input_dim=7, feature_dim=16, num_layers=4, hidden_dim=64):
+    def __init__(self, input_dim=7, feature_dim=16, num_layers=4, hidden_dim=64, print_debug=False):
         super().__init__()
         self.num_layers = num_layers
         self.feature_dim = feature_dim
+        self.print_debug = print_debug
         # hidden_dim = 64
         self.pool = LoopPool(pooling_type="mean")
         self.conv1 = FaceConv(input_dim, hidden_dim)
