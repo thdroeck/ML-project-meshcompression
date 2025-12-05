@@ -19,10 +19,10 @@ WRAPPINGNET_PATH = SCRIPT_DIR.parent
 DATA_DIR = WRAPPINGNET_PATH / "datasets" / "Manifold40"
 
 RESULTS_DIR = WRAPPINGNET_PATH / "results"
-RESULT_FILE = RESULTS_DIR / "draco_benchmark.csv"
+RESULT_FILE = RESULTS_DIR / "draco_benchmark_manifold40.csv"
 
 # quantization bits for position (geometry)
-QUANTIZATION_LEVELS = [8, 10, 12, 14, 16]
+QUANTIZATION_LEVELS = [2, 4, 6, 8, 10, 12, 14]
 # Number of points for metric calculations
 N_METRIC_POINTS = 20000
 # --------------------
@@ -131,7 +131,7 @@ def run_benchmark():
     """
     Runs the Draco benchmark on all meshes in DATA_DIR/raw/*/test
     """
-    print(f"Starting Draco benchmark (Multiprocessed)...")
+    print(f"Starting Draco benchmark...")
     print(f"Dataset root: {DATA_DIR}")
     print(f"Results will be saved in: {RESULT_FILE}")
 
