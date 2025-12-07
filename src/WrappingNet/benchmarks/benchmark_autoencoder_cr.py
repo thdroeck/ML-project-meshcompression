@@ -98,6 +98,8 @@ def process_mesh(mesh_path):
 
         # 3. Calculate Sizes & Ratios
         latent_bytes = latent_code.numel() * 4
+        latent_bits = latent_bytes * 8
+        bpv_latent_only = latent_bits / float(num_vertices)
         
         # Base Mesh overhead (for Full Ratio)
         try: num_nodes = int(face_base.max().item()) + 1
@@ -140,6 +142,7 @@ def process_mesh(mesh_path):
             "mesh_path": rel_path,
             "original_vertices": num_vertices,
             "original_file_size": int(original_file_size),
+            "bpv": float(bpv_latent_only),
             
             # The requested comparison metrics
             "ratio_vertex": float(ratio_vertex),

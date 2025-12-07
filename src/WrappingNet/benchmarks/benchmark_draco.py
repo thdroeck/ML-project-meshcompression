@@ -8,18 +8,22 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 import concurrent.futures
+import warnings
 
 from benchmark_utils import get_mesh_stats, compute_all_metrics
+
+# Suppress trimesh runtime warnings (common with degenerate faces in compression)
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="trimesh")
 
 # --- CONFIGURATION ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
 WRAPPINGNET_PATH = SCRIPT_DIR.parent
 
 # Point to the root of the Manifold40 dataset
-DATA_DIR = WRAPPINGNET_PATH / "datasets" / "Manifold40"
+DATA_DIR = WRAPPINGNET_PATH / "datasets" / "shrec_16"
 
 RESULTS_DIR = WRAPPINGNET_PATH / "results"
-RESULT_FILE = RESULTS_DIR / "draco_benchmark_manifold40.csv"
+RESULT_FILE = RESULTS_DIR / "draco_benchmark_shrec_16.csv"
 
 # quantization bits for position (geometry)
 QUANTIZATION_LEVELS = [2, 4, 6, 8, 10, 12, 14]
@@ -43,16 +47,16 @@ def process_mesh(mesh_path):
         rel_path = Path(mesh_path).name
 
     try:
-        original_mesh = trimesh.load_mesh(mesh_path)
+        # Get actual file size on disk for compression ratio
+        original_file_size = os.path.getsize(mesh_path)
+
+        original_mesh = trimesh.load_mesh(mesh_path, process=False)
 
         if original_mesh is None or not hasattr(original_mesh, 'vertices'):
             return []
 
         if not hasattr(original_mesh, 'faces') or len(original_mesh.faces) == 0:
             return []
-
-        if not original_mesh.is_watertight:
-            pass
 
         stats = get_mesh_stats(original_mesh)
         original_num_vertices = stats["vertices"]
@@ -85,13 +89,20 @@ def process_mesh(mesh_path):
         compressed_size_bytes = len(compressed_data)
         bpv = (compressed_size_bytes * 8) / original_num_vertices
 
+        # Calculate Compression Ratio (File Size / Compressed Size)
+        if compressed_size_bytes > 0:
+            compression_ratio = original_file_size / float(compressed_size_bytes)
+        else:
+            compression_ratio = 0.0
+
         # --- 2. Decompression Performance ---
         start_time = time.perf_counter()
         try:
             decompressed_mesh_data = draco.decode_buffer_to_mesh(compressed_data)
             decompressed_mesh = trimesh.Trimesh(
                 vertices=decompressed_mesh_data.points,
-                faces=decompressed_mesh_data.faces
+                faces=decompressed_mesh_data.faces,
+                process=False
             )
         except Exception as e:
             print(f"Draco decoding error: {e} for {rel_path} (QP={qp})")
@@ -105,9 +116,27 @@ def process_mesh(mesh_path):
                 decompressed_mesh,
                 N_METRIC_POINTS
             )
+            
+            # --- P2S (Point to Surface) CALCULATION ---
+            # Sample points from both surfaces
+            sample_size_p2s = 10000 
+            p_orig, _ = trimesh.sample.sample_surface(original_mesh, sample_size_p2s)
+            p_rec, _ = trimesh.sample.sample_surface(decompressed_mesh, sample_size_p2s)
+
+            # Distance: Rec Points -> Orig Surface
+            _, dist_r2o, _ = trimesh.proximity.closest_point(original_mesh, p_rec)
+            
+            # Distance: Orig Points -> Rec Surface
+            _, dist_o2r, _ = trimesh.proximity.closest_point(decompressed_mesh, p_orig)
+            
+            # Symmetric Average
+            p2s_dist = (dist_r2o.mean() + dist_o2r.mean()) / 2.0
+
         except Exception as e:
-            print(f"Metric computation error: {e} for {rel_path} (QP={qp})")
-            continue
+            # Often happens if rtree is missing or mesh is degenerate
+            # print(f"Metric computation error: {e} for {rel_path} (QP={qp})")
+            p2s_dist = np.nan
+            distortion_metrics = {"chamfer": np.nan, "hausdorff": np.nan}
 
         # --- 4. Store Results ---
         result = {
@@ -115,10 +144,19 @@ def process_mesh(mesh_path):
             "q_level": qp,
             "original_vertices": original_num_vertices,
             "original_faces": stats["faces"],
+            "original_file_size_bytes": int(original_file_size),
+            
+            # Compression Results
             "compressed_size_bytes": compressed_size_bytes,
+            "compression_ratio": float(compression_ratio), # NEW
             "bpv": bpv,
-            "chamfer_distance": distortion_metrics["chamfer"],
-            "hausdorff_distance": distortion_metrics["hausdorff"],
+            
+            # Geometric Results
+            "p2s_dist": float(p2s_dist), # NEW
+            "chamfer_distance": distortion_metrics.get("chamfer", np.nan),
+            "hausdorff_distance": distortion_metrics.get("hausdorff", np.nan),
+            
+            # Times
             "compression_time_sec": compression_time,
             "decompression_time_sec": decompression_time
         }
@@ -137,17 +175,15 @@ def run_benchmark():
 
     RESULTS_DIR.mkdir(exist_ok=True)
 
-    # Pattern: ROOT / raw / <any_category> / test / <any_subfolder> / <file>
-    # search_path_obj = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.obj")
-    # search_path_ply = os.path.join(DATA_DIR, "raw", "*", "test", "**", "*.ply")
-    search_path_obj = os.path.join(DATA_DIR, "raw", "airplane", "test", "**", "*.obj")
-    search_path_ply = os.path.join(DATA_DIR, "raw", "airplane", "test", "**", "*.ply")
+    # Search for all test meshes
+    search_path_obj = os.path.join(DATA_DIR, "*", "test", "**", "*.obj")
+    search_path_ply = os.path.join(DATA_DIR, "*", "test", "**", "*.ply")
 
     print("Scanning for files...")
     mesh_files = glob.glob(search_path_obj, recursive=True) + glob.glob(search_path_ply, recursive=True)
 
     if not mesh_files:
-        print(f"No meshes found in {DATA_DIR}/raw/*/test/")
+        print(f"No meshes found in {DATA_DIR}/*/test/")
         print("Please check directory structure.")
         return
 
@@ -156,7 +192,6 @@ def run_benchmark():
     all_results = []
     
     # Determine max workers (default to CPU count if None)
-    # You can lower this if memory usage is too high (e.g., max_workers=4)
     max_workers = os.cpu_count() 
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -179,6 +214,10 @@ def run_benchmark():
     df.to_csv(RESULT_FILE, index=False)
     
     print(f"\nBenchmark completed. Results saved in {RESULT_FILE}")
+    print("\n--- Summary Statistics ---")
+    print(f"Mean Compression Ratio: {df['compression_ratio'].mean():.2f}x")
+    print(f"Mean P2S Distance:      {df['p2s_dist'].mean():.6f}")
+    print(f"Mean Chamfer Distance:  {df['chamfer_distance'].mean():.6f}")
 
 if __name__ == "__main__":
     run_benchmark()
