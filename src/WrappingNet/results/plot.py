@@ -3,13 +3,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # 1. Load the datasets
-# Replace with the actual paths to your CSV files
-df_e1 = pd.read_csv('autoencoder_benchmark_test_airplane_d64_e1.csv')
-df_e10 = pd.read_csv('autoencoder_benchmark_test_airplane_d64_e10.csv')
+df_e1 = pd.read_csv('src/WrappingNet/results/autoencoder_benchmark_test_airplane_d64_e10.csv')
+df_e10 = pd.read_csv('src/WrappingNet/results/draco_benchmark.csv')
 
 # 2. Prepare the data for plotting
-df_e1['Epoch'] = 'E1'
-df_e10['Epoch'] = 'E10'
+df_e1['Epoch'] = 'E10'
+df_e10['Epoch'] = 'Draco'
 df_combined = pd.concat([df_e1, df_e10], axis=0)
 
 # ==========================================
@@ -34,7 +33,7 @@ sns.boxplot(x='Epoch', y='decompression_time_sec', data=df_combined, ax=axes[1, 
 axes[1, 1].set_title('Decompression Time Distribution')
 
 plt.tight_layout()
-plt.savefig('comparison_plots.png')
+plt.savefig('src/WrappingNet/results/comparison_plots.png')
 plt.show()
 
 # ==========================================
@@ -49,11 +48,11 @@ plt.scatter(df_e1['chamfer_distance'], df_e10['chamfer_distance'], alpha=0.7)
 max_val = df_e1['chamfer_distance'].max()
 plt.plot([0, max_val], [0, max_val], 'r--', label='No Improvement')
 
-plt.xlabel('Chamfer Distance (E1)')
-plt.ylabel('Chamfer Distance (E10)')
-plt.title('Chamfer Distance: E1 vs E10 per sample')
+plt.xlabel('Chamfer Distance (E10)')
+plt.ylabel('Chamfer Distance (Draco)')
+plt.title('Chamfer Distance: E10 vs Draco per sample')
 plt.legend()
 plt.grid(True)
 
-plt.savefig('chamfer_improvement_scatter.png')
+plt.savefig('src/WrappingNet/results/chamfer_improvement_scatter.png')
 plt.show()

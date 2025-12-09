@@ -14,6 +14,13 @@ import torch.nn as nn
 import torch_scatter
 from torch_geometric.nn.models import MLP
 
+import warnings
+
+warnings.filterwarnings(
+    "ignore", 
+    message=".*Argument `batch_norm` is deprecated.*"
+)
+
 
 class FaceConv(torch.nn.Module):
     """

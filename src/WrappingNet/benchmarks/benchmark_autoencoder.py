@@ -10,11 +10,11 @@ from tqdm import tqdm
 from torch_geometric.data import Data
 import concurrent.futures
 import argparse
-
-from WrappingNet.wrappingnet.models import Autoencoder
-from benchmark_utils import compute_all_metrics, get_mesh_stats
-
 import warnings
+
+from WrappingNet.wrappingnet.models import Autoencoder, SimpleAutoencoder, ExtendedAutoencoder
+
+from benchmark_utils import compute_all_metrics, get_mesh_stats
 
 # Suppress runtime warnings from trimesh regarding zero division
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="trimesh")
@@ -24,6 +24,7 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 WRAPPINGNET_PATH = SCRIPT_DIR.parent
 
 DATA_DIR_DEFAULT = WRAPPINGNET_PATH / "datasets" / "Manifold40"
+# Note: You might need different checkpoints for different model architectures
 CHECKPOINT_DEFAULT = WRAPPINGNET_PATH.parent.parent / "trained" / \
                      "MeshAE_MSL2_src_WrappingNet_datasets_Manifold40_raw_d128_e10.ckpt"
 
@@ -39,13 +40,34 @@ GLOBAL_MODEL = None
 GLOBAL_DEVICE = torch.device("cpu")
 
 
+def get_model_class(model_type_str):
+    """Maps string argument to Model Class."""
+    mapping = {
+        "autoencoder": Autoencoder,
+        "simple": SimpleAutoencoder,
+        "extended": ExtendedAutoencoder
+    }
+    if model_type_str.lower() not in mapping:
+        raise ValueError(f"Unknown model type: {model_type_str}. Available: {list(mapping.keys())}")
+    return mapping[model_type_str.lower()]
+
+
 def load_model_instance(args, device):
-    """Loads the Autoencoder model once per worker process."""
+    """Loads the specific Autoencoder model architecture once per worker process."""
     
+    # Select the class based on args
+    ModelClass = get_model_class(args.model_type)
+    
+    # print(f"Initializing {ModelClass.__name__} on {device}...")
+
     # Initialize the model structure
-    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3).to(device)
+    # All three models share this init signature based on your provided code
+    model = ModelClass(input_dim=7, feature_dim=args.latent_dim, num_loop=3).to(device)
 
     # Load the state dictionary
+    if not args.checkpoint.exists():
+        raise FileNotFoundError(f"Checkpoint not found at: {args.checkpoint}")
+
     saved = torch.load(args.checkpoint, map_location=device)
     if isinstance(saved, dict) and 'state_dict' in saved:
         state = saved['state_dict']
@@ -64,7 +86,13 @@ def load_model_instance(args, device):
             elif k.startswith('model.'):
                 new_key = k[len('model.'):]
             new_state[new_key] = v
-        model.load_state_dict(new_state)
+        
+        # We use strict=False tentatively, but ideally, the checkpoint should match the architecture
+        missing_keys, unexpected_keys = model.load_state_dict(new_state, strict=False)
+        if missing_keys:
+            print(f"[Warning] Missing keys in checkpoint: {missing_keys[:5]}...")
+        if unexpected_keys:
+            print(f"[Warning] Unexpected keys in checkpoint: {unexpected_keys[:5]}...")
 
     model.eval()
     # In worker processes, limit intraop/omp threads to avoid oversubscription
@@ -90,7 +118,7 @@ def worker_init(args, gpu_id=None):
     else:
         GLOBAL_DEVICE = torch.device("cpu")
         
-    print(f"Worker process {os.getpid()} initialized on {GLOBAL_DEVICE}")
+    # print(f"Worker process {os.getpid()} initialized on {GLOBAL_DEVICE}")
         
     # Load the model only once per worker
     GLOBAL_MODEL = load_model_instance(args, GLOBAL_DEVICE)
@@ -143,9 +171,26 @@ def process_mesh(mesh_path):
         with torch.no_grad():
             start = time.perf_counter()
             face_base, features = model.encoder(data.pos, data.face.T)
-            # Max pooling to get the latent code
-            latent_code = torch.max(features, dim=0)[0].unsqueeze(0)
-            latent_code = model.mlp2(latent_code).squeeze(0)
+            
+            # --- LATENT CODE EXTRACTION ---
+            # Different models might handle the bottleneck slightly differently,
+            # but based on your provided classes, they all conform to this pattern
+            # or utilize model.mlp2 / max pooling.
+            
+            # Note: SimpleAutoencoder does NOT have self.mlp2 in the provided code.
+            # We must adapt based on the model class or check existence.
+            
+            if hasattr(model, 'mlp2'):
+                # Logic for Autoencoder and ExtendedAutoencoder
+                latent_code = torch.max(features, dim=0)[0].unsqueeze(0)
+                latent_code = model.mlp2(latent_code).squeeze(0)
+            else:
+                # Logic for SimpleAutoencoder (Latent is just the max pooled features)
+                # Or whatever logic creates the bottleneck. 
+                # In your SimpleAutoencoder.forward(), it passes 'features' directly to decoder.
+                # To benchmark "latent size", we simulate the max pool which acts as the global context.
+                latent_code = torch.max(features, dim=0)[0] 
+                
             encode_time = time.perf_counter() - start
 
         if latent_code is None or latent_code.numel() == 0:
@@ -180,14 +225,27 @@ def process_mesh(mesh_path):
             compression_ratio_file = 0.0
 
         # 3. Vertex Compression Ratio
+        # For SimpleAutoencoder, feature_dim is passed directly, so latent_dim arg should match feature_dim
         vertex_compression_ratio = float(num_vertices) / float(GLOBAL_ARGS.latent_dim)
 
         # --- DECODING ---
         with torch.no_grad():
             start = time.perf_counter()
-            repeat_count = features.shape[0]
-            features_repeat = latent_code.repeat(repeat_count, 1)
-            pos_list, face_list = model.decoder(pos_base, face_base, features_repeat)
+            
+            if hasattr(model, 'mlp2'):
+                 # Autoencoder / Extended
+                repeat_count = features.shape[0]
+                features_repeat = latent_code.repeat(repeat_count, 1)
+                pos_list, face_list = model.decoder(pos_base, face_base, features_repeat)
+            else:
+                # SimpleAutoencoder: provided forward() implies it keeps features spatial?
+                # However, usually for AE benchmark we want to decode from the Latent.
+                # Your SimpleAutoencoder.forward passes 'features' straight through.
+                # If we strictly benchmark the 'Latent' capability, we should use the repeated max-pool
+                # like the others, but SimpleAutoencoder might rely on local features.
+                # We will follow the model's own forward logic for reconstruction accuracy:
+                pos_list, face_list = model.decoder(pos_base, face_base, features)
+
             decode_time = time.perf_counter() - start
 
         rec_vertices = pos_list[-1].cpu().numpy()
@@ -198,8 +256,6 @@ def process_mesh(mesh_path):
         metrics = compute_all_metrics(original_mesh, rec_mesh, N_METRIC_POINTS)
 
         # --- P2S (Point to Surface) CALCULATION ---
-        # Note: Chamfer is usually P2P (Point to Point). P2S is more accurate.
-        # We sample points from Original and find distance to Surface of Rec, and vice versa.
         try:
             # 1. Sample points
             sample_size_p2s = 10000
@@ -207,7 +263,6 @@ def process_mesh(mesh_path):
             p_rec, _ = trimesh.sample.sample_surface(rec_mesh, sample_size_p2s)
 
             # 2. Distance: Rec Points -> Orig Surface
-            # closest_point returns (closest_points, distances, triangle_id)
             _, dist_r2o, _ = trimesh.proximity.closest_point(original_mesh, p_rec)
             p2s_r2o = dist_r2o.mean()
 
@@ -222,6 +277,7 @@ def process_mesh(mesh_path):
             p2s_dist = np.nan
 
         results.append({
+            # "model_type": GLOBAL_ARGS.model_type, # Track which model was used
             "mesh_path": rel_path,
             "latent_dim": int(latent_code.numel()),
             "original_vertices": int(num_vertices),
@@ -229,11 +285,11 @@ def process_mesh(mesh_path):
             # SIZE & RATIOS
             "original_file_size_bytes": int(original_file_size),
             "compression_ratio_file": float(compression_ratio_file),
-            "compression_ratio_vertex": float(vertex_compression_ratio), # NEW
+            "compression_ratio_vertex": float(vertex_compression_ratio),
             "bpv": float(bpv_latent_only),
             
             # GEOMETRY
-            "p2s_dist": float(p2s_dist), # NEW
+            "p2s_dist": float(p2s_dist),
             "chamfer_distance": float(metrics.get('chamfer', np.nan)),
             "hausdorff_distance": float(metrics.get('hausdorff', np.nan)),
             "normal_deviation": float(metrics.get('normal_dev', np.nan)),
@@ -271,6 +327,13 @@ def parse_args():
         help="Latent dimension size used in the Autoencoder model"
     )
     parser.add_argument(
+        "--model-type",
+        type=str,
+        default="autoencoder",
+        choices=["autoencoder", "simple", "extended"],
+        help="The architecture to benchmark: 'autoencoder', 'simple', or 'extended'."
+    )
+    parser.add_argument(
         "--results",
         type=Path,
         default=RESULT_FILE,
@@ -294,10 +357,11 @@ def parse_args():
 def run_benchmark():
     args = parse_args()
 
-    print("Starting Autoencoder benchmark...")
-    print(f"Dataset directory: {args.dataset}")
-    print(f"Model checkpoint: {args.checkpoint}")
-    print(f"Latent dimension: {args.latent_dim}")
+    print("Starting Benchmark...")
+    print(f"Model Architecture: {args.model_type}")
+    print(f"Dataset directory:  {args.dataset}")
+    print(f"Model checkpoint:   {args.checkpoint}")
+    print(f"Latent dimension:   {args.latent_dim}")
     
     RESULTS_DIR.mkdir(exist_ok=True)
 
@@ -340,9 +404,6 @@ def run_benchmark():
 
     all_results = []
 
-    # Note: Using gpu_ids[0] for initialization here simplistically. 
-    # For advanced multi-GPU round-robin with ProcessPool, a Queue is usually required.
-    # This setup assumes one main GPU or that the OS handles CUDA context switching reasonably well.
     init_gpu = gpu_ids[0] if gpu_ids else None
 
     with concurrent.futures.ProcessPoolExecutor(
@@ -356,11 +417,14 @@ def run_benchmark():
     df = pd.DataFrame(all_results)
     if not df.empty:
         df = df.sort_values("mesh_path")
+        # Ensure we write to a distinct filename if running different models, or append
+        # For now, we overwrite based on args.results
         df.to_csv(args.results, index=False)
         print(f"\nBenchmark done and results saved to → {args.results}")
         
         # Updated Summary Statistics
         print("\n--- Summary Statistics ---")
+        print(f"Model: {args.model_type}")
         print(f"Mean Vertex Comp Ratio:   {df['compression_ratio_vertex'].mean():.2f}x (Verts/Latent)")
         print(f"Mean File Comp Ratio:     {df['compression_ratio_file'].mean():.2f}x")
         print(f"Mean P2S Distance:        {df['p2s_dist'].mean():.6f}")
