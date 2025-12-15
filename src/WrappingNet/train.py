@@ -1,14 +1,27 @@
 from argparse import ArgumentParser
 
 import os
+from pyexpat import model
 from WrappingNet.wrappingnet.dataloaders import preprocess_mesh
 import trimesh
 import torch
 from tqdm import tqdm
 from torch_geometric.data import Data
-from WrappingNet.wrappingnet.models import Autoencoder
+from WrappingNet.wrappingnet.models import Autoencoder, SimpleAutoencoder, ExtendedAutoencoder
+from WrappingNet.wrappingnet import utils
 from WrappingNet.wrappingnet import losses
 
+
+def getmodel(args):
+    if args.model == "basic":
+        model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    elif args.model == "simple":
+        model = SimpleAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    elif args.model == "extended":
+        model = ExtendedAutoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3)
+    else:
+        raise ValueError(f"Unknown model type: {args.model}")
+    return model
 
 def train(args):
     """Training function to loop over all .obj files in the dataset path and train the model."""
@@ -18,11 +31,15 @@ def train(args):
     )
     # Training code would go here
 
-    model = Autoencoder(input_dim=7, feature_dim=args.latent_dim, num_loop=3, print_debug=False)
+    model = getmodel(args)
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=args.lr,
     )
+
+    print(torch.cuda.is_available())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)        
 
     data = []
     dataset_counter = 0
@@ -33,9 +50,21 @@ def train(args):
             for file in os.listdir(train_path):
                 if file.endswith(".obj"):
                     mesh = trimesh.load(os.path.join(train_path, file))
-                    pos = torch.tensor(mesh.vertices, dtype=torch.float32)
-                    face = torch.tensor(mesh.faces, dtype=torch.long)
-                    data.append(preprocess_mesh(Data(pos=pos, face=face.T)))
+                    new_faces = mesh.faces
+                    new_vert = mesh.vertices
+                    # while (len (new_vert) < 2000):
+                    #     new_vert, new_faces = trimesh.remesh.subdivide(new_vert, new_faces, face_index=None, vertex_attributes=None, return_index=False)
+                    #     print(len(new_vert))
+                    if (len(new_vert) % 2 == 1):
+                        new_vert, new_faces = trimesh.remesh.subdivide(new_vert, new_faces, face_index=None, vertex_attributes=None, return_index=False)
+                    pos = torch.tensor(new_vert, dtype=torch.float32)
+                    face = torch.tensor(new_faces, dtype=torch.long)
+                    mesh = preprocess_mesh(Data(pos=pos, face=face.T))
+                    data.append(mesh)
+                    # mesh = trimesh.load(os.path.join(train_path, file))
+                    # pos = torch.tensor(mesh.vertices, dtype=torch.float32)
+                    # face = torch.tensor(mesh.faces, dtype=torch.long)
+                    # data.append(preprocess_mesh(Data(pos=pos, face=face.T)))
             dataset_counter += 1
 
     for epoch in range(args.epochs):
@@ -43,16 +72,17 @@ def train(args):
         for i in tqdm(range(len(data))):
             pos = data[i].pos
             face = data[i].face
+            pos_base = utils.get_base_mesh(pos, face.T)
             pos_list, face_list, _ = model(
                 pos, face.T
-            )  # self.model(data.pos, data.face.T, pos_base)
+            ) 
             rate = torch.tensor(0.0)
 
             distortion_loss = losses.get_distortion_loss(args.loss_function)(
                 pos_list, face_list, pos, face.T
             )
             chamfer_loss = losses.chamfer(pos_list[-1], pos)  # unused for now
-            loss = rate + args.lmbda * distortion_loss
+            loss = rate + args.lmbda * distortion_loss + 0.5*chamfer_loss
             epoch_loss += loss.item()
 
             loss.backward()
@@ -67,7 +97,7 @@ def train(args):
     
     safe_data_root_name = args.data_root.replace("/", "_").replace(".", "").strip("_")
     
-    save_path = f"trained/MeshAE_{args.loss_function}_{safe_data_root_name}_d{args.latent_dim}_e{args.epochs}.ckpt"
+    save_path = f"trained/MeshAE_{args.model}_{args.loss_function}_{safe_data_root_name}_d{args.latent_dim}_e{args.epochs}.ckpt"
     
     print(f"Saving model to {save_path}")
     
@@ -97,6 +127,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--max_datasets", type=int, default=float('inf'), help="Maximum number of datasets to use"
+    )
+    parser.add_argument(
+        "--model", type=str, default="basic", help="Model type"
     )
     args = parser.parse_args()
 
