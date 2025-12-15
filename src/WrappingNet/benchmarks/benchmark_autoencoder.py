@@ -386,6 +386,7 @@ def run_benchmark():
         num_workers = total_cpus
 
     num_workers = max(1, num_workers)
+    num_workers = 8
     print(f"Using {num_workers} worker processes.")
     
     # --- File Scanning ---

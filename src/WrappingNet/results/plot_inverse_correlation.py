@@ -9,13 +9,10 @@ import os
 # ==========================================
 # Paths to the single Draco CSV files
 DRACO_SHREC16_FILE = 'src/WrappingNet/results/draco_benchmark_shrec_16.csv'
-DRACO_MANIFOLD40_FILE = 'src/WrappingNet/results/draco_benchmark_manifold40.csv'
-
 AE_SHREC16_FOLDER = 'src/WrappingNet/results/ae_basic_shrec16_test_cr/'
-AE_MANIFOLD40_FOLDER = 'src/WrappingNet/results/ae_basic_manifold40_test_cr/'
 
 # Output filename
-OUTPUT_IMAGE = 'inverse_correlation_extended.png'
+OUTPUT_IMAGE = 'inverse_correlation.png'
 
 # ==========================================
 # DATA LOADING FUNCTIONS
@@ -89,47 +86,26 @@ def load_ae_folder(folder_path, dataset_name):
 # 1. Load Data
 print("Loading Data...")
 df_draco_shrec = load_draco(DRACO_SHREC16_FILE, 'SHREC16')
-df_draco_mani = load_draco(DRACO_MANIFOLD40_FILE, 'Manifold40')
 df_ae_shrec = load_ae_folder(AE_SHREC16_FOLDER, 'SHREC16')
-df_ae_mani = load_ae_folder(AE_MANIFOLD40_FOLDER, 'Manifold40')
 
 # Combine all "Real" data
-df = pd.concat([df_draco_shrec, df_draco_mani, df_ae_shrec, df_ae_mani], ignore_index=True)
+df = pd.concat([df_draco_shrec, df_ae_shrec], ignore_index=True)
 
 if df.empty:
     raise ValueError("No data loaded! Check your paths.")
 
 # 2. Calculate Projection Multiplier
-# We compare AE SHREC vs AE Manifold at common points (d32, d64, d128)
+# We compare AE at common points (d32, d64, d128)
 ae_shrec_idx = df[(df['Method']=='AE') & (df['Dataset']=='SHREC16')].set_index('Label')
-ae_mani_idx = df[(df['Method']=='AE') & (df['Dataset']=='Manifold40')].set_index('Label')
 
-common_labels = [l for l in ae_shrec_idx.index if l in ae_mani_idx.index]
 multipliers = []
-for l in common_labels:
-    ratio_mani = ae_mani_idx.loc[l, 'Compression_Ratio']
-    ratio_shrec = ae_shrec_idx.loc[l, 'Compression_Ratio']
-    multipliers.append(ratio_mani / ratio_shrec)
 
 # Default to 2.0 if no overlap found, otherwise use calculated average
 avg_multiplier = np.mean(multipliers) if multipliers else 2.0
-print(f"Calculated Manifold/SHREC Multiplier: {avg_multiplier:.4f}")
+print(f"Calculated Multiplier: {avg_multiplier:.4f}")
 
-# 3. Generate Extrapolated Points (d256, d512 for Manifold40)
 projected_rows = []
-dims_to_project = ['d8', 'd512']
-
-for dim in dims_to_project:
-    if dim in ae_shrec_idx.index:
-        base_row = ae_shrec_idx.loc[dim]
-        projected_rows.append({
-            'Method': 'AE',
-            'Dataset': 'Manifold40',
-            'Label': dim,
-            'BPV': base_row['BPV'], # BPV stays the same
-            'Compression_Ratio': base_row['Compression_Ratio'] * avg_multiplier, # Ratio is scaled
-            'Is_Projected': True
-        })
+dims_to_project = ['d8', 'd16', 'd32', 'd64', 'd128', 'd256' 'd512']
 
 df_projected = pd.DataFrame(projected_rows)
 df_final = pd.concat([df, df_projected], ignore_index=True)
@@ -141,13 +117,45 @@ print("Plotting...")
 plt.figure(figsize=(12, 8))
 
 # Style Settings
-markers = {'SHREC16': 'o', 'Manifold40': 's'}
-colors = {'Draco': 'tab:blue', 'AE': 'tab:orange'}
-linestyles = {'SHREC16': '-', 'Manifold40': '--'}
+markers = {'SHREC16': 'o'}
+colors = {'Draco': 'tab:red', 'AE': 'tab:blue'}
+linestyles = {'SHREC16': '--'}
+
+# --- NEW: CALCULATE REGION BOUNDARIES ---
+# Find min BPV for Draco (The cutoff point)
+draco_data = df_final[(df_final['Method'] == 'Draco') & (df_final['Dataset'] == 'SHREC16')]
+ae_data = df_final[(df_final['Method'] == 'AE') & (df_final['Dataset'] == 'SHREC16')]
+
+if not draco_data.empty and not ae_data.empty:
+    min_draco_bpv = draco_data['BPV'].min()
+    min_ae_bpv = ae_data['BPV'].min()
+
+    # Only draw if AE actually goes lower than Draco
+    if min_ae_bpv < min_draco_bpv:
+        # 1. Add Shaded Region
+        plt.axvspan(min_ae_bpv * 0.9, min_draco_bpv, 
+                    color='tab:blue', alpha=0.1, lw=0) # Light blue shading
+        
+        # 2. Add Annotation Text
+        # Place text in the middle of the region, near the top
+        mid_point = (min_ae_bpv + min_draco_bpv) / 2
+        # Use a geometric mean for log-scale visual centering
+        log_mid_point = 10**((np.log10(min_ae_bpv) + np.log10(min_draco_bpv))/2)
+        
+        plt.text(log_mid_point, ae_data['Compression_Ratio'].max() * 0.5, 
+                 "AE Exclusive Region\n(Ultra-Low Bitrate)", 
+                 color='tab:blue', fontsize=11, fontweight='bold', 
+                 ha='center', va='center',
+                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=2))
+        
+        # Optional: Add a vertical line at the boundary
+        plt.axvline(x=min_draco_bpv, color='tab:red', linestyle=':', alpha=0.5)
+        plt.text(min_draco_bpv, ae_data['Compression_Ratio'].min(), " Draco Limit ", 
+                 color='tab:red', rotation=90, va='bottom', ha='right', fontsize=9)
 
 # Iterate through groups to plot lines
 for method in ['Draco', 'AE']:
-    for dataset in ['SHREC16', 'Manifold40']:
+    for dataset in ['SHREC16']:
         # Get data for this line
         subset = df_final[(df_final['Method'] == method) & (df_final['Dataset'] == dataset)].sort_values('BPV')
         
@@ -162,7 +170,7 @@ for method in ['Draco', 'AE']:
         if not real_subset.empty:
             plt.plot(real_subset['BPV'], real_subset['Compression_Ratio'], 
                      marker=markers[dataset], color=colors[method], linestyle=linestyles[dataset], 
-                     linewidth=2, label=f"{method} {dataset}")
+                     linewidth=2, label=f"{method}")
             
             # Annotate endpoints
             start = real_subset.iloc[0]
@@ -188,7 +196,7 @@ for method in ['Draco', 'AE']:
                              xytext=(5, 5), textcoords='offset points', color=colors[method], alpha=0.7, fontsize=8)
 
 # Formatting
-plt.title('Extended Inverse Correlation: Compression Ratio vs BPV\n', fontsize=14)
+plt.title('Inverse Correlation: Compression Ratio vs BPV\n', fontsize=14)
 plt.xlabel('Bits Per Vertex (BPV)', fontsize=12)
 plt.ylabel('Compression Ratio', fontsize=12)
 plt.yscale('log')
